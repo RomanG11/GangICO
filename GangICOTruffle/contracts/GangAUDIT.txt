@@ -1,0 +1,87 @@
+GangToken:
+
+Contract using 0.4.22 solidity compiler, which compile this contract without warnings
+
+library SafeMath corretly implemented;
+used ZeppelinSolidity contracts:
+
+contracts/zeppelin/token/ERC20/ERC20Basic.sol
+contracts/zeppelin/token/ERC20/BasicToken.sol
+contracts/zeppelin/token/ERC20/ERC20.sol
+contracts/zeppelin/token/ERC20/StandardToken.sol
+
+TokenMarketNet: https://github.com/TokenMarketNet/ico/blob/master/contracts/MintableToken.sol
+
+which exactly match with origin, so it makes no sense to audit them;
+
+
+Contract GangToken havent owner but has multisig access to
+functions mint and finishMinting which responce for token minting.
+
+
+GangCrowdsale:
+
+Contract using 0.4.22 solidity compiler, which compile this contract without warnings
+
+library SafeMath corretly implemented;
+
+used contract Ownable to identify owner;
+
+buy tokens works correct;
+
+contract has selfdestruct function which can destroy this contract,
+I think its implemented to destroy this contract after ICO.
+
+ICO haven't each stage, but owner can change rates ETH/Token.
+
+GangMultisigContract
+
+Contract using 0.4.22 solidity compiler, which compile this contract without warnings
+
+Contract used TokenContract functions:
+	function mint(address _to, uint256 _amount) public;
+    function finishMinting () public;
+    function setupMultisig (address _address) public;
+
+
+This contract can work only with 2+ owners because someone should to confirm request from another owner;
+
+mapping (address => bool) owners;
+should be:
+mapping (address => bool) public owners;
+
+to know who exactly owner right now, but it's not affect the code logic;
+
+All functions works correct. Tested with 2 and 3 owners to confirm.
+
+
+GangToken Smart Contract:
+
+1. gangFY Token (Hereinafter referred to as the 'Token')  will be developed as a standard ERC20 token.
+
+2. The Token will have 18 decimal places.
+
+3. The Token will have a maximum supply of 2 000 000 000 (2 billion) tokens.
+
+4. Owners of the contract shall be able to create (MINT) X number of tokens as and when required. X can be any integer between 1 and 2 000 000 000 (2 billion). 
+
+5. Owners of the contract shall be able to transfer tokens to other wallets as and when required.  
+
+6. A list of owners of the contract shall be included in the smart contract. New owners shall be able to be added to the list and existing owners shall be able to be removed as well. For adding or removal of owners shall need approval by 3 other owners in the list. 
+
+7. Owners shall be able to invoke onlyOwner methods. Each invoke shall need the approval of 3 owners in the list. 
+
+8. Number of owners required to approve an onlyOwner method shall be able to be configured. - Please let me know if this is possible, when and how much extra. (let's discuss over  the phone in few hours)
+
+9. The Token shall be able to be burned, as and when required. 
+
+
+GangTokenSale Smart Contract:
+
+1. This will be a separate smart contract to implement the CrowdSale.
+
+2. This contract will issue gangFY tokens automatically, upon receiving ETHER.
+
+3. The rate between ETHER and gangFY token shall be adjustable as and when required. The rate can be any integer equal to 1 or above. 
+
+4. This contract shall be self-destructible. An improved smart contract for the same purpose may be deployed later if required.
