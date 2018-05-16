@@ -1,7 +1,8 @@
 pragma solidity ^0.4.22;
 
-/*@dev abstract token contract
- *to call multisig functions
+/**
+ *@title abstract TokenContract
+ *@dev  token contract to call multisig functions
 */
 contract TokenContract{
   function mint(address _to, uint256 _amount) public;
@@ -9,16 +10,21 @@ contract TokenContract{
   function setupMultisig (address _address) public;
 }
 
-/*
+/**
  *@title contract GangMultisig
  *@dev using multisig access to call another contract functions
 */
 contract GangMultisig {
   
-  /*@dev token contract variable, contains token address
+  /**
+   *@dev token contract variable, contains token address
    *can use abstract contract functions
   */
   TokenContract public token;
+
+  //@dev Variable to check multisig functions life time.
+  //change it before deploy in main network
+  uint public lifeTime = 300; // seconds;
   
   //@dev constructor
   constructor (address _token, uint _needApprovesToConfirm, address[] _owners) public{
@@ -31,7 +37,8 @@ contract GangMultisig {
 
     needApprovesToConfirm = _needApprovesToConfirm;
 
-    /*@dev Call function setupMultisig in token contract
+    /**
+     *@dev Call function setupMultisig in token contract
      *This function can be call once.
     */
     token.setupMultisig(address(this));
@@ -39,17 +46,20 @@ contract GangMultisig {
     ownersCount = _owners.length;
   }
 
-  /*@dev internal function, called in constructor
+  /**
+   *@dev internal function, called in constructor
    *Add initial owners in mapping 'owners'
   */
   function addInitialOwners (address[] _owners) internal {
     for (uint i = 0; i < _owners.length; i++){
+      //@dev check for duplicate owner addresses
+      require(!owners[_owners[i]]);
       owners[_owners[i]] = true;
     }
   }
 
-  //@dev Variable to check multisig functions life time.
-  uint public lifeTime = 300; // seconds;
+  //@dev variable to check is minting finished;
+  bool public mintingFinished = false;
 
   //@dev Mapping which contains all active owners.
   mapping (address => bool) public owners;
@@ -93,6 +103,8 @@ contract GangMultisig {
   function setNewMintRequest (address _spender, uint _value) public onlyOwners {
     require (setNewMint.creationTimestamp + lifeTime < uint32(now) || setNewMint.isExecute || setNewMint.isCanceled);
 
+    require (!mintingFinished);
+
     address[] memory addr;
 
     setNewMint = SetNewMint(_spender, _value, 1, false, msg.sender, false, uint32(now), addr);
@@ -108,6 +120,8 @@ contract GangMultisig {
   function approveNewMintRequest () public onlyOwners {
     require (!setNewMint.isExecute && !setNewMint.isCanceled);
     require (setNewMint.creationTimestamp + lifeTime >= uint32(now));
+
+    require (!mintingFinished);
 
     for (uint i = 0; i < setNewMint.confirmators.length; i++){
       require(setNewMint.confirmators[i] != msg.sender);
@@ -159,8 +173,10 @@ contract GangMultisig {
    * @dev New finish minting request, can be call only by owner
    */
   function finishMintingRequestSetup () public onlyOwners{
-    require ((finishMintingStruct.creationTimestamp + lifeTime < uint32(now) || !finishMintingStruct.isCanceled) && !finishMintingStruct.isExecute);
+    require ((finishMintingStruct.creationTimestamp + lifeTime < uint32(now) || finishMintingStruct.isCanceled) && !finishMintingStruct.isExecute);
     
+    require (!mintingFinished);
+
     address[] memory addr;
 
     finishMintingStruct = FinishMintingStruct(1, false, msg.sender, false, uint32(now), addr);
@@ -177,6 +193,8 @@ contract GangMultisig {
     require (!finishMintingStruct.isCanceled && !finishMintingStruct.isExecute);
     require (finishMintingStruct.creationTimestamp + lifeTime >= uint32(now));
 
+    require (!mintingFinished);
+
     for (uint i = 0; i < finishMintingStruct.confirmators.length; i++){
       require(finishMintingStruct.confirmators[i] != msg.sender);
     }
@@ -188,6 +206,7 @@ contract GangMultisig {
     if(finishMintingStruct.confirms >= needApprovesToConfirm){
       token.finishMinting();
       finishMintingStruct.isExecute = true;
+      mintingFinished = true;
     }
     
     emit FinishMintingRequestUpdate(msg.sender, finishMintingStruct.confirms, finishMintingStruct.isExecute);
@@ -321,6 +340,11 @@ contract GangMultisig {
     require (!addOwner.isExecute && !addOwner.isCanceled);
     require (addOwner.creationTimestamp + lifeTime >= uint32(now));
 
+    /**
+     *@dev new owner shoudn't be in owners mapping
+     */
+    require (!owners[addOwner.newOwner]);
+
     for (uint i = 0; i < addOwner.confirmators.length; i++){
       require(addOwner.confirmators[i] != msg.sender);
     }
@@ -362,7 +386,7 @@ contract GangMultisig {
   /**
    * @dev Function to remove owner from mapping 'owners', can be call only by owner
    * @param _removeOwner address potentially owner to remove
-  */
+   */
   function removeOwnerRequest (address _removeOwner) public onlyOwners {
     require (removeOwners.creationTimestamp + lifeTime < uint32(now) || removeOwners.isExecute || removeOwners.isCanceled);
 
@@ -382,7 +406,7 @@ contract GangMultisig {
     require (ownersCount - 1 >= needApprovesToConfirm && ownersCount > 2);
     
     require (!removeOwners.isExecute && !removeOwners.isCanceled);
-    require (removeOwners.creationTimestamp + lifeTime < uint32(now));
+    require (removeOwners.creationTimestamp + lifeTime >= uint32(now));
 
     for (uint i = 0; i < removeOwners.confirmators.length; i++){
       require(removeOwners.confirmators[i] != msg.sender);
@@ -411,77 +435,142 @@ contract GangMultisig {
    */
   function _removeOwnersAproves(address _oldOwner) internal{
     //@dev check actions in setNewMint requests
-    if(setNewMint.initiator == _oldOwner){
-      setNewMint.isCanceled = true;
-      emit NewMintRequestCanceled();
-    }else{
-      for (uint i = 0; i < setNewMint.confirmators.length; i++){
-        if (setNewMint.confirmators[i] == _oldOwner){
-          setNewMint.confirmators[i] = address(0);
-          setNewMint.confirms--;
+    //@dev check for empty struct
+    if (setNewMint.initiator != address(0)){
+      //@dev check, can this request be approved by someone, if no then no sense to change something
+      if (setNewMint.creationTimestamp + lifeTime >= uint32(now) && !setNewMint.isExecute && !setNewMint.isCanceled){
+        if(setNewMint.initiator == _oldOwner){
+          setNewMint.isCanceled = true;
+          emit NewMintRequestCanceled();
+        }else{
+          //@dev Trying to find _oldOwner in struct confirmators
+          for (uint i = 0; i < setNewMint.confirmators.length; i++){
+            if (setNewMint.confirmators[i] == _oldOwner){
+              //@dev if _oldOwner confirmed this request he should be removed from confirmators
+              setNewMint.confirmators[i] = address(0);
+              setNewMint.confirms--;
 
-          break;
-        }
-      }
-    }
-    
-    //@dev check actions in finishMintingStruct requests
-    if(finishMintingStruct.initiator == _oldOwner){
-      finishMintingStruct.isCanceled = true;
-      emit NewMintRequestCanceled();
-    }else{
-      for (i = 0; i < finishMintingStruct.confirmators.length; i++){
-        if (finishMintingStruct.confirmators[i] == _oldOwner){
-          finishMintingStruct.confirmators[i] = address(0);
-          finishMintingStruct.confirms--;
-
-          break;
-        }
-      }
-    }
-
-    //@dev check actions in setNewApproves requests
-    if(setNewApproves.initiator == _oldOwner){
-      setNewApproves.isCanceled = true;
-
-      emit NewNeedApprovesToConfirmRequestCanceled();
-    }else{
-      for (i = 0; i < setNewApproves.confirmators.length; i++){
-        if (setNewApproves.confirmators[i] == _oldOwner){
-          setNewApproves.confirmators[i] = address(0);
-          setNewApproves.confirms--;
-
-          break;
+              /**
+               *@dev Struct can be confirmed each owner just once
+               *so no sence to continue loop
+               */
+              break;
+            }
+          }
         }
       }
     }
 
-    //@dev check actions in addOwner requests
-    if(addOwner.initiator == _oldOwner){
-      addOwner.isCanceled = true;
-      emit AddOwnerRequestCanceled();
-    }else{
-      for (i = 0; i < addOwner.confirmators.length; i++){
-        if (addOwner.confirmators[i] == _oldOwner){
-          addOwner.confirmators[i] = address(0);
-          addOwner.confirms--;
+    /**@dev check actions in finishMintingStruct requests
+     * check for empty struct
+     */
+    if (finishMintingStruct.initiator != address(0)){
+      //@dev check, can this request be approved by someone, if no then no sense to change something
+      if (finishMintingStruct.creationTimestamp + lifeTime >= uint32(now) && !finishMintingStruct.isExecute && !finishMintingStruct.isCanceled){
+        if(finishMintingStruct.initiator == _oldOwner){
+          finishMintingStruct.isCanceled = true;
+          emit NewMintRequestCanceled();
+        }else{
+          //@dev Trying to find _oldOwner in struct confirmators
+          for (i = 0; i < finishMintingStruct.confirmators.length; i++){
+            if (finishMintingStruct.confirmators[i] == _oldOwner){
+              //@dev if _oldOwner confirmed this request he should be removed from confirmators
+              finishMintingStruct.confirmators[i] = address(0);
+              finishMintingStruct.confirms--;
 
-          break;
+              /**
+               *@dev Struct can be confirmed each owner just once
+               *so no sence to continue loop
+               */
+              break;
+            }
+          }
+        }     
+      }
+    }
+
+    /**@dev check actions in setNewApproves requests
+     * check for empty struct
+     */
+    if (setNewApproves.initiator != address(0)){
+      //@dev check, can this request be approved by someone, if no then no sense to change something
+      if (setNewApproves.creationTimestamp + lifeTime >= uint32(now) && !setNewApproves.isExecute && !setNewApproves.isCanceled){
+        if(setNewApproves.initiator == _oldOwner){
+          setNewApproves.isCanceled = true;
+
+          emit NewNeedApprovesToConfirmRequestCanceled();
+        }else{
+          //@dev Trying to find _oldOwner in struct confirmators
+          for (i = 0; i < setNewApproves.confirmators.length; i++){
+            if (setNewApproves.confirmators[i] == _oldOwner){
+              //@dev if _oldOwner confirmed this request he should be removed from confirmators
+              setNewApproves.confirmators[i] = address(0);
+              setNewApproves.confirms--;
+
+              /**
+               *@dev Struct can be confirmed each owner just once
+               *so no sence to continue loop
+               */
+              break;
+            }
+          }
         }
       }
     }
 
-    //@dev check actions in removeOwners requests
-    if(removeOwners.initiator == _oldOwner){
-      removeOwners.isCanceled = true;
-      emit RemoveOwnerRequestCanceled();
-    }else{
-      for (i = 0; i < removeOwners.confirmators.length; i++){
-        if (removeOwners.confirmators[i] == _oldOwner){
-          removeOwners.confirmators[i] = address(0);
-          removeOwners.confirms--;
+    /**
+     *@dev check actions in addOwner requests
+     *check for empty struct
+     */
+    if (addOwner.initiator != address(0)){
+      //@dev check, can this request be approved by someone, if no then no sense to change something
+      if (setNewApproves.creationTimestamp + lifeTime >= uint32(now) && !setNewApproves.isExecute && !setNewApproves.isCanceled){
+        if(addOwner.initiator == _oldOwner){
+          addOwner.isCanceled = true;
+          emit AddOwnerRequestCanceled();
+        }else{
+          //@dev Trying to find _oldOwner in struct confirmators
+          for (i = 0; i < addOwner.confirmators.length; i++){
+            if (addOwner.confirmators[i] == _oldOwner){
+              //@dev if _oldOwner confirmed this request he should be removed from confirmators
+              addOwner.confirmators[i] = address(0);
+              addOwner.confirms--;
 
-          break;
+              /**
+               *@dev Struct can be confirmed each owner just once
+               *so no sence to continue loop
+               */
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    /**@dev check actions in removeOwners requests
+     *@dev check for empty struct
+    */
+    if (removeOwners.initiator != address(0)){
+      //@dev check, can this request be approved by someone, if no then no sense to change something
+      if (setNewApproves.creationTimestamp + lifeTime >= uint32(now) && !setNewApproves.isExecute && !setNewApproves.isCanceled){
+        if(removeOwners.initiator == _oldOwner){
+          removeOwners.isCanceled = true;
+          emit RemoveOwnerRequestCanceled();
+        }else{
+          //@dev Trying to find _oldOwner in struct confirmators
+          for (i = 0; i < removeOwners.confirmators.length; i++){
+            if (removeOwners.confirmators[i] == _oldOwner){
+              //@dev if _oldOwner confirmed this request he should be removed from confirmators
+              removeOwners.confirmators[i] = address(0);
+              removeOwners.confirms--;
+
+              /**
+               *@dev Struct can be confirmed each owner just once
+               *so no sence to continue loop
+               */
+              break;
+            }
+          }
         }
       }
     }
